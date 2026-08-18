@@ -1,0 +1,126 @@
+# 60 — Events, evaluation, and outputs
+
+## 60.1 Canonical event ledger
+
+The event frame is the analytical source of truth. It has one row per SKU and
+period, plus a separately typed opening-order event when requested. Columns
+cover these groups:
+
+| Group | Examples |
+|---|---|
+| identity/time | SKU, event type, period, date, window |
+| opening state | starting on-hand, backlog, pipeline, inventory position |
+| demand/receipt flows | demand, received, current fulfillment, old backlog fulfillment, shortage |
+| ending state | ending on-hand, backlog, pipeline, inventory position |
+| order flow | requested, adjustment, constrained, final quantity, timing |
+| policy diagnostics | target level, safety stock, review flag |
+| operational audit | order-event/line counts, capacity flags, constraint audit |
+| perishability | expired units and explicit stock adjustment |
+
+`validate_event_frame` enforces required columns, types, finite/nonnegative
+values, unique row keys, mutually consistent shortage mode, timing flags, and
+all flow identities from [20.8](20_data_and_time_contracts.md#208-balance-equations).
+
+## 60.2 Result object
+
+`SimulationResult` packages:
+
+- period state history;
+- final inventory;
+- validated events;
+- explicit run settings;
+- the run manifest.
+
+`to_event_frame(window=...)` filters the ledger. Summary behavior uses scoring
+events and exact event-based metrics. Consumers should persist both events and
+manifest; a summary alone cannot reproduce the run.
+
+## 60.3 Evaluator contract
+
+`InventoryEvaluator.fit` accepts exactly one `SimulationResult` or one event
+frame. A result requires an explicit window selection. The event frame is
+validated before metrics run.
+
+`evaluate` also requires explicit grouping:
+
+- `groupby=[]` means a pooled calculation;
+- named columns produce grouped results.
+
+This prevents an accidental implicit average across SKUs or periods. Metrics
+may be built-in objects, compatible metric objects, or callables, but all
+operate on the same validated rows.
+
+## 60.4 Metric families
+
+### Units and shortage
+
+Demand, fulfilled units, shortage, lost sales, backlog unit-periods, terminal
+backlog, and terminal pipeline are direct event aggregations. The ambiguous
+name `backorder_units_end` is rejected; callers must choose a precise backlog
+measure.
+
+### Service
+
+- fill rate;
+- demand-period service;
+- cycle service, with explicit inclusion/exclusion of partial receipt cycles;
+- SKU-period stockout rate;
+- calendar-period stockout/backorder rate.
+
+These have different populations. A calendar rate first combines SKU rows by
+period, while a SKU-period rate counts each SKU-period observation.
+
+### Ordering and capacity
+
+- units ordered;
+- SKU order-line count;
+- system order-event count;
+- positive order-size population variance;
+- capacity violation count and rate.
+
+System events are stored once per period rather than repeated on every SKU row,
+preserving additivity.
+
+### Inventory
+
+- average on-hand, inventory position, and on-order stock;
+- population variance and peak of total ending on-hand by calendar period;
+- annualized inventory turns with explicit `periods_per_year`.
+
+### Cost
+
+Holding, shortage, backlog, ordering, purchase, waste, terminal backlog,
+terminal pipeline, and salvage calculations require explicit row data or
+context rates. Ordering cost supports a fixed SKU-line charge plus a unit cost;
+there is no implicit global event cost. `total_cost` requires an explicit list
+of included components, and salvage is subtracted.
+
+### Coverage
+
+Forward coverage requires `expected_demand_rate` per row or an explicit
+`forward_demand_rate` context. Trailing coverage uses realized per-SKU mean
+demand. Multi-SKU aggregation must be chosen explicitly.
+
+## 60.5 Visualization
+
+Plot functions consume event frames (or result/history adapters), return axes,
+and do not call `show`. They provide single-run and comparison inventory plots
+and dashboards. When aggregating a multi-SKU event frame without a selected
+SKU, preparation combines rows by period. Plots are presentation views; they do
+not replace canonical validation or metric calculations.
+
+## 60.6 Provenance needed beside outputs
+
+An inspectable experiment artifact should retain:
+
+- canonical event frame;
+- run manifest and settings;
+- opening-state data/fingerprint;
+- exact demand data/fingerprint and generation settings;
+- policy target data, metadata, and fingerprint;
+- constraint order/configuration;
+- package/build provenance;
+- evaluation window, grouping, metric definitions, and cost context.
+
+If one of these is missing, document the limitation rather than synthesizing a
+replacement value.
