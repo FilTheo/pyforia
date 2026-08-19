@@ -2,25 +2,26 @@
 
 ## 80.1 Current executable evidence
 
-The staging unit directory contains 8 client-independent files, 99 top-level
-test functions, and 110 pytest cases after parametrization. The 108 copied
-legacy cases, the focused hook regression, and the namespace-boundary
-regression all pass against `src/pyforia`. This verifies source-path behavior
-after the mechanical namespace migration. It is not evidence for an installed
-distribution, wheel, source distribution, or frozen public API.
+The staging unit directory contains 9 client-independent files, 131 top-level
+test functions, and 154 pytest cases after parametrization. The suite includes
+focused regressions for the retired namespace and removed API names and passes
+against `src/pyforia`. This verifies source-path behavior in the staging tree.
+It is not evidence for an installed distribution, wheel, source distribution,
+or frozen public API.
 
 ## 80.2 Test-file map
 
 | File | Top-level test functions | Main evidence |
 |---|---:|---|
+| `test_callbacks.py` | 32 | lifecycle timing, built-ins/custom callbacks, validation failures, defensive inputs/outputs, audit, manifests, preflight/repeated/comparison reset, inventory-sensitive prediction, FIFO integration, fixtures, executable examples |
 | `test_data_structures.py` | 23 | IDs, initialization, readiness, receipts, backlog/lost sales, demand and order timing |
 | `test_demand_generator.py` | 4 | demand source shapes, negative handling, reproducibility/provenance |
-| `test_inventory_evaluation.py` | 8 | canonical validation, evaluator grouping/window choices, metrics and costs |
-| `test_order_constraints.py` | 11 | built-in rules, adjustment/raise modes, order dependence, audit and reset |
-| `test_policy_target_contracts.py` | 18 | direct targets, horizons, probabilities, dates, quantile guardrails, providers |
+| `test_inventory_evaluation.py` | 9 | canonical validation, metric surface, evaluator grouping/window choices, metrics and costs |
+| `test_order_constraints.py` | 10 | built-in rules, adjustment/raise modes, order dependence, audit and reset |
+| `test_policy_target_contracts.py` | 19 | direct targets, horizons, probabilities, dates, continuous-review timing, quantile guardrails, providers |
 | `test_shelf_life.py` | 11 | lot balance, FIFO expiry/consumption, opening-lot modes, event integration |
-| `test_simulation_contracts.py` | 22 | preflight, demand grid, hooks, events, schedules, comparisons, provenance |
-| `test_extension_contracts.py` | 2 | removed callback surface and absence of an active `pystate` package |
+| `test_simulation_contracts.py` | 21 | preflight, demand grid, events, schedules, comparisons, provenance |
+| `test_extension_contracts.py` | 2 | removed `after_step` surface and absence of an active `pystate` package |
 
 The M5 and SPAR adapter-contract files remain in the private source repository
 and are intentionally absent from the staging test tree.
@@ -42,6 +43,9 @@ instead of copying these numbers into release claims.
 - that results match an external benchmark or real operational system;
 - production scale or performance, continuous-time or multi-echelon behavior,
   arbitrary forecasting-model compatibility, or automatic target calibration.
+- supplier-specific order decisions through `SimulationEngine`; 0.1.0 places
+  one composed decision per enabled decision opportunity, while the low-level
+  state primitive retains repeated-order accumulation.
 
 ## 80.4 Extraction test strategy
 
@@ -64,7 +68,7 @@ When package construction is authorized, create evidence in layers:
 No package build has been performed because packaging remains a separate owner
 decision and release gate.
 
-## 80.5 Resolved legacy `after_step` hook
+## 80.5 Removed live-state hooks and typed callback evidence
 
 The copied engine formerly validated and appended a period event before calling
 `after_step`. A custom hook could therefore mutate returned inventory after the
@@ -79,10 +83,19 @@ client-independent legacy cases passed together (`109 passed` on 2026-08-18).
 After migration, those 109 cases plus the new retired-namespace boundary test
 pass locally (`110 passed` on 2026-08-18).
 
-A possible ordered callback-object mechanism is private future work, not a
-0.1.0 API promise. Any later callback that requests a physical adjustment must
-return explicit adjustment evidence for engine-owned application and validation
-before the period event is finalized.
+The initial removal did not close every equivalent path. On 2026-08-19, a focused probe
+overrode `after_period_event`, directly added 100 units to its live inventory
+argument, and returned the already-built event unchanged. Validation passed;
+the terminal event recorded `ending_on_hand = 5.0` while returned final
+inventory had `on_hand = 105.0`.
+
+The owner subsequently approved the two-phase typed callback contract. The
+implementation removes all public hooks that received live state and preserves
+shelf-life behavior through private engine phases. Callback effects are applied
+by the engine before event validation. The callback suite covers no-callback
+parity, ordering, failure, provenance, comparison reset, executable examples,
+and event/state/FIFO continuity. Owner review remains required before the
+release gate is closed.
 
 ## 80.6 Evidence commands
 
@@ -110,8 +123,8 @@ source path can hide missing build files and incorrect distribution metadata.
 
 This knowledge layer is designed to be mechanically scannable:
 
-- [70](70_module_reference.md) names all 22 candidate source modules;
-- this page names all 8 staging unit-test files;
+- [70](70_module_reference.md) names all 23 candidate source modules;
+- this page names all 9 staging unit-test files;
 - [20](20_data_and_time_contracts.md) records state/order/demand contracts;
 - [30](30_execution_flow.md) records the complete run sequence;
 - [40](40_policies_and_targets.md) records all policy families and target modes;

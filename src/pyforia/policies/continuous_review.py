@@ -1,13 +1,7 @@
-"""
-Continuous Review inventory policy implementation.
+"""Traditional ``(s,Q)`` and ``(s,S)`` continuous-review policies.
 
-This module implements continuous review policies where inventory is
-monitored continuously and orders are placed when inventory position
-falls to or below a reorder point.
-
-Supports:
-    - (s,Q) policy: Order fixed quantity Q when inventory position ≤ s
-    - (s,S) policy: Order up to S when inventory position ≤ s
+Pyforia is a discrete-period simulator. These policies are evaluated once per
+simulated period, not continuously in physical time.
 """
 
 import pandas as pd
@@ -29,11 +23,11 @@ from pyforia.policies._target_validation import (
 
 class ContinuousReviewPolicy(BasePolicy):
     """
-    Discrete-period (s,Q) or (s,S) inventory policy with fit/predict API.
+    Traditional ``(s,Q)`` or ``(s,S)`` continuous-review inventory policy.
 
-    The historical class name is retained for compatibility. The simulator
-    checks inventory once per simulated period; it is not continuous-event
-    review.
+    The simulator evaluates the policy once per discrete simulated period
+    (``review_period = 1``). "Continuous review" names the traditional policy
+    family; it does not mean continuous physical-time observation.
 
     Policy Variants:
         - (s,Q): Order fixed quantity Q when IP ≤ s

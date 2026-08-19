@@ -4,7 +4,6 @@ import pytest
 from pyforia import InventoryStateDataFrame, SimulationEngine
 from pyforia.core.base_policy import BasePolicy
 from pyforia.core.data_structures import OrderDecision
-from pyforia.evaluation import sku_order_quantity_variance
 from pyforia.utils import DemandGenerator
 
 
@@ -235,40 +234,6 @@ def test_initial_decision_can_place_an_order_before_first_demand():
     initial_event = with_initial.to_event_frame().iloc[0]
     assert initial_event["event_type"] == "initial_decision"
     assert initial_event["order_quantity"] == 10.0
-
-
-def test_multiple_supplier_decisions_are_counted_directly():
-    class DoubleDecisionEngine(SimulationEngine):
-        def on_review_period(self, inventory, policy, period):
-            for quantity in (1.0, 3.0):
-                policy.order_quantity = quantity
-                orders = policy.predict(inventory, current_period=period)
-                inventory = self._update_inventory(inventory, orders, policy=policy)
-            return inventory
-
-    demand = pd.DataFrame({
-        "unique_id": ["A"],
-        "period": [0],
-        "date": [pd.Timestamp("2025-01-02")],
-        "y": [0.0],
-    })
-    result = DoubleDecisionEngine().run(
-        _policy(order_quantity=2.0),
-        demand,
-        _inventory(),
-        n_periods=1,
-        period_frequency="D",
-        initial_decision="none",
-        **_run_contract(1),
-    )
-
-    event = result.to_event_frame().iloc[0]
-    assert event["order_quantity"] == 4.0
-    assert event["order_event_count"] == 2
-    assert event["sku_order_line_count"] == 2
-    assert event["order_line_quantity_squared_sum"] == 10.0
-    assert sku_order_quantity_variance(result.to_event_frame()) == 1.0
-    assert result.summary()["order_event_count"] == 2
 
 
 def test_comparison_materializes_callable_once_and_copies_policies():

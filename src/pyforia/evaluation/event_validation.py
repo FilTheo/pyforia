@@ -18,6 +18,7 @@ CANONICAL_EVENT_COLUMNS = (
     "order_line_quantity_squared_sum", "expired_units",
     "inventory_adjustment_units", "target_level", "safety_stock",
     "stockout_flag", "backorder_flag", "requested_order_quantity",
+    "callback_adjustment_units", "callback_adjusted_order_quantity",
     "constrained_order_quantity", "constraint_adjustment_units",
     "constraint_binding_flag", "capacity_violation_flag", "binding_constraints",
     "run_window",
@@ -30,6 +31,7 @@ _NONNEGATIVE_FLOW_COLUMNS = (
     "ending_on_hand", "backorders_end", "on_order_end", "order_quantity",
     "order_event_count", "sku_order_line_count", "order_line_quantity_squared_sum",
     "expired_units", "requested_order_quantity", "constrained_order_quantity",
+    "callback_adjusted_order_quantity",
 )
 
 _BOOLEAN_COLUMNS = (
@@ -103,7 +105,10 @@ def validate_event_frame(event_frame: pd.DataFrame) -> pd.DataFrame:
         if values.isna().any() or not np.isfinite(values).all() or (values < 0).any():
             raise ValueError(f"event_frame.{column} must contain finite values >= 0")
         frame[column] = values.astype(float)
-    for column in ("inventory_adjustment_units", "constraint_adjustment_units", "inventory_position_end"):
+    for column in (
+        "inventory_adjustment_units", "callback_adjustment_units",
+        "constraint_adjustment_units", "inventory_position_end",
+    ):
         values = pd.to_numeric(frame[column], errors="coerce")
         if values.isna().any() or not np.isfinite(values).all():
             raise ValueError(f"event_frame.{column} must contain finite numeric values")
@@ -164,7 +169,13 @@ def validate_event_frame(event_frame: pd.DataFrame) -> pd.DataFrame:
     )
     _require_close(
         frame,
-        frame["requested_order_quantity"] + frame["constraint_adjustment_units"],
+        frame["requested_order_quantity"] + frame["callback_adjustment_units"],
+        frame["callback_adjusted_order_quantity"],
+        "callback adjustment identity",
+    )
+    _require_close(
+        frame,
+        frame["callback_adjusted_order_quantity"] + frame["constraint_adjustment_units"],
         frame["constrained_order_quantity"],
         "constraint adjustment identity",
     )

@@ -128,56 +128,16 @@ def test_summary_rejects_missing_event_quantities_instead_of_using_zero():
         result.summary()
 
 
-def test_simulation_engine_demand_and_event_hooks():
-    class HookEngine(SimulationEngine):
-        def before_demand(self, inventory, demand_df, period):
-            inventory.data["on_hand"] = inventory.data["on_hand"] - 1.0
-            return inventory
-
-        def after_period_event(self, event_df, inventory, period):
-            event_df = event_df.copy()
-            event_df["inventory_adjustment_units"] = -1.0
-            event_df["hook_period"] = period
-            return event_df
-
-    inventory = InventoryStateDataFrame(["A"], max_lead_time=1).initialize_zero(
-        start_date=pd.Timestamp("2025-01-01")
-    )
-    inventory.data["on_hand"] = 5.0
-    policy = NoOrderPolicy(
-        lead_time=1,
-        review_period=1,
-        service_level=0.95,
-        allow_backorders=False,
-    )
-    demand = pd.DataFrame({
-        "unique_id": ["A"],
-        "period": [0],
-        "date": [pd.Timestamp("2025-01-02")],
-        "y": [3.0],
-    })
-
-    result = HookEngine().run(
-        policy,
-        demand,
-        inventory,
-        n_periods=1,
-        period_frequency="D",
-        initial_decision="none",
-        warmup_periods=0,
-        scoring_periods=1,
-        settlement_periods=0,
-        order_during_settlement=False,
-        demand_source_name="unit_test",
-        random_seed=None,
-    )
-    event = result.to_event_frame().iloc[0]
-
-    assert event["starting_on_hand"] == 5.0
-    assert event["inventory_adjustment_units"] == -1.0
-    assert event["fulfilled_units"] == 3.0
-    assert event["ending_on_hand"] == 1.0
-    assert event["hook_period"] == 1
+def test_simulation_engine_exposes_no_live_state_hook_surface():
+    for name in (
+        "before_step",
+        "before_demand",
+        "on_stockout",
+        "on_review_period",
+        "after_period_event",
+        "after_step",
+    ):
+        assert not hasattr(SimulationEngine, name)
 
 
 def test_negative_demand_is_rejected():
@@ -409,15 +369,9 @@ def test_precomputed_one_row_target_is_allowed():
     assert policy.get_target_levels()["target_level"].iloc[0] == 123.0
 
 
-def test_heuristic_historical_initialization_is_rejected():
-    historical = pd.DataFrame({
-        "unique_id": ["A", "A", "B"],
-        "y": [1.0, 3.0, 5.0],
-    })
-
-    inventory = InventoryStateDataFrame(["A", "B"], max_lead_time=1)
-    with pytest.raises(ValueError, match="experimental assumption"):
-        inventory.initialize_from_historical_data(historical)
+def test_heuristic_initializers_are_absent():
+    assert not hasattr(InventoryStateDataFrame, "initialize_from_forecast")
+    assert not hasattr(InventoryStateDataFrame, "initialize_from_historical_data")
 
 
 def test_observed_opening_stock_requires_a_complete_sku_grid():

@@ -44,9 +44,10 @@ There are two accepted starting patterns:
   nonnegative observed on-hand values, and an explicit date. It starts backlog
   and pipeline at zero.
 
-`initialize_from_forecast(...)` and `initialize_from_historical_data(...)` are
-rejection stubs. Earlier heuristic initialization was removed; callers must not
-derive an undocumented opening stock level from forecasts or history.
+There are no forecast-based or historical-data initializer methods. Earlier
+heuristic initialization was removed; callers must not derive an undocumented
+opening stock level from forecasts or history. A future initializer requires a
+new explicit contract with complete inputs and provenance.
 
 ## 20.4 Time model
 
@@ -120,8 +121,16 @@ When an order is applied:
 - the state pipeline must be long enough for that lead time;
 - quantity is added to pipeline index `L - 1`;
 - `latest_order` accumulates, allowing multiple supplier/order events in one
-  decision period;
+  decision period when the low-level inventory operation is invoked more than
+  once;
 - on-hand stock does not change.
+
+In 0.1.0, `SimulationEngine` makes one policy prediction and places one
+composed `OrderDecision` per enabled decision opportunity. Order callbacks may
+adjust that decision but cannot create additional supplier-specific decisions.
+The low-level accumulation rule is retained as a state primitive; a typed
+multi-supplier engine API is deferred because supplier identity, lead time,
+constraints, cost, delivery, and audit semantics must be designed together.
 
 ## 20.8 Balance equations
 

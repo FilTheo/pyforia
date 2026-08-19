@@ -143,13 +143,6 @@ def terminal_pipeline_units(event_frame: pd.DataFrame, context: Optional[dict] =
     return _sum(_terminal_rows(event_frame), "on_order_end")
 
 
-def backorder_units_end(event_frame: pd.DataFrame, context: Optional[dict] = None) -> float:
-    raise ValueError(
-        "backorder_units_end was ambiguous and has been removed; use "
-        "backlog_unit_periods or terminal_backlog_units"
-    )
-
-
 def order_units(event_frame: pd.DataFrame, context: Optional[dict] = None) -> float:
     return _sum(event_frame, "order_quantity")
 

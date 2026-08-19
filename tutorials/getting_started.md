@@ -54,8 +54,10 @@ inventory.initialize_from_observed(
 ```
 
 `initialize_zero()` is available when zero opening stock is the declared
-scenario. The former forecast-fraction and historical mean-plus-z initializers
-raise migration errors because they embedded experimental assumptions.
+scenario. There are no forecast-fraction or historical mean-plus-z initializer
+methods; those heuristics are unsupported. Calculate any non-observed opening
+stock outside Pyforia with explicit assumptions and provenance, then pass the
+result through the supported observed-state or complete-state paths.
 
 For opening backlog or pipeline, construct the complete state DataFrame
 directly and validate it before the run.
@@ -239,6 +241,9 @@ evaluation = InventoryEvaluator().fit(result, window="scoring").evaluate(
 partial-cycle choice. `stockout_period_rate` is the share of calendar periods
 with any stockout. `demand_period_service_level` and
 `sku_period_stockout_rate` are the corresponding SKU-period row measures.
+Use `backlog_unit_periods` for backlog exposure summed across scored SKU-period
+rows, or `terminal_backlog_units` for backlog at the final scored period; there
+is no ambiguous `backorder_units_end` metric.
 
 `total_cost` computes only components listed in `cost_components`; every active
 rate must be supplied, including deliberate zeros.

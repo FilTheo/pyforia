@@ -27,7 +27,7 @@ policies --------------------------+
   |                                 |
   | OrderDecision                   |
   v                                 v
-SimulationEngine --> constraints --> inventory_operations
+SimulationEngine --> callbacks --> constraints --> inventory_operations
   |       |                              |
   |       +--> ShelfLifeEngine hooks     v
   |                                  InventoryStateDataFrame
@@ -75,11 +75,11 @@ imports refer to them.
 
 | Object | Created by | Mutated by | Consumed by |
 |---|---|---|---|
-| `InventoryStateDataFrame` | caller/init method | state transition and order operation | policy, engine, hooks, event builder |
+| `InventoryStateDataFrame` | caller/init method | engine-owned state transition and order operation | policy, engine, defensive callback context, event builder |
 | `OrderDecision` | fitted policy | constraints, then order operation | engine and event builder |
 | fitted policy | caller via `fit` | engine uses a deep copy | engine |
 | demand frame | caller or `DemandGenerator` | materialized/validated, not incrementally regenerated | engine |
-| canonical event rows | engine | hook may add event fields before validation | result/evaluator/plots |
+| canonical event rows | engine | engine attaches typed callback and constraint audit before validation | result/evaluator/plots |
 | `SimulationResult` | engine | treated as run output | evaluator and caller |
 
 The engine deep-copies starting state and policy for a run. Comparison runs also

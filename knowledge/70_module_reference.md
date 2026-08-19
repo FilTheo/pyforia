@@ -8,7 +8,8 @@ Paths are relative to `src/pyforia`.
 ### `__init__.py`
 
 The staging `pyforia` top-level surface provisionally preserves the inherited
-exports for the main state, policy, engine, result, and constraint types. It
+exports for the main state, policy, engine, result, and constraint types and
+exports the approved callback types and built-ins. It
 does not export shelf-life classes, evaluator, metrics, demand generation, or
 plots from the top level. Treat this as migration evidence, not a frozen public
 API.
@@ -19,7 +20,14 @@ API.
 
 Exports `InventoryStateDataFrame`, `OrderDecision`, `BasePolicy`,
 `SimulationEngine`, `SimulationResult`, `ComparisonResult`, all constraint
-types, `FIFOLotLedger`, and `ShelfLifeEngine`.
+types, callback types/built-ins, `FIFOLotLedger`, and `ShelfLifeEngine`.
+
+### `core/callbacks.py`
+
+Defines the public callback base, defensive context, typed inventory/order
+results, callback error, and four schedule-oriented built-ins. It owns built-in
+schedule validation and serializable callback configuration; the engine owns
+application and scientific validation.
 
 ### `core/base_policy.py`
 
@@ -45,15 +53,15 @@ and final cross-validation. See [50](50_constraints_and_shelf_life.md).
 ### `core/shelf_life.py`
 
 Defines `FIFOLotLedger` and `ShelfLifeEngine`. It owns dated-lot validation,
-FIFO consumption, expiry timing, opening-lot fingerprints, and hook integration
+FIFO consumption, expiry timing, opening-lot fingerprints, and private engine integration
 with canonical events. See [50.4](50_constraints_and_shelf_life.md#504-shelf-life-model).
 
 ### `core/simulation_engine.py`
 
-Defines `SimulationEngine`, `ShelfLifeEngine` integration hooks,
+Defines `SimulationEngine`, typed callback integration,
 `SimulationResult`, and `ComparisonResult` behavior. It owns run preflight,
 demand materialization, policy schedules, period ordering, constraints,
-canonical event construction, pre-finalization hook placement, flow assertions,
+canonical event construction, callback audit, flow assertions,
 comparison isolation, and run manifests. The removed legacy `after_step` hook
 is not part of the staging extension surface. See [30](30_execution_flow.md).
 
@@ -122,8 +130,9 @@ generation provenance.
 ### `evaluation/__init__.py`
 
 Exports `InventoryEvaluator`, canonical event validation, metric base/classes,
-and the full functional metric surface. The old API includes
-`backorder_units_end`, but calling it raises because the name is ambiguous.
+and the full functional metric surface. The ambiguous historical name
+`backorder_units_end` is absent; use `backlog_unit_periods` or
+`terminal_backlog_units` according to the intended aggregation.
 
 ### `evaluation/event_validation.py`
 
@@ -163,9 +172,9 @@ and do not own display or scientific validation.
 | If changing… | Inspect together |
 |---|---|
 | state fields or timing | `data_structures.py`, `simulation_engine.py`, `event_validation.py`, metrics, plots |
-| order timing | policies, `inventory_operations.py`, engine event builder, constraints, event validator |
+| order timing | policies, callbacks, `inventory_operations.py`, engine event builder, constraints, event validator |
 | target semantics | `_target_validation.py`, affected policy, engine policy schedule/manifest |
 | event schema | engine event builder, shelf-life hook, validator, evaluator, all metrics, plots |
 | shortage mode | state transition, engine event semantics, validator, service/cost metrics |
-| shelf life | lot ledger, engine hook order, event balance, waste metrics |
+| shelf life | lot ledger, private engine phase order, callbacks, event balance, waste metrics |
 | provenance | demand generator, policy metadata, engine manifest, packaging/build metadata |

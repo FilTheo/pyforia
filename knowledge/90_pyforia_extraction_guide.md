@@ -17,7 +17,22 @@
 - Do not build the package yet.
 - Repository/project URL remains open; do not invent a placeholder URL.
 - The unrestricted legacy `after_step` hook is removed from the staging core.
-  Pyforia 0.1.0 does not promise a callback API.
+- Keep `ContinuousReviewPolicy` as the public name while stating that it is
+  evaluated once per simulated period, not continuously in physical time.
+- Do not expose the removed forecast/history opening-state initializer names or
+  the ambiguous `backorder_units_end` metric. Use explicit zero/observed state
+  initialization and the precise `backlog_unit_periods` or
+  `terminal_backlog_units` metric.
+- Pyforia 0.1.0 will include a small ordered callback interface whose first
+  intervention point is after policy prediction. The engine must validate,
+  apply, audit, and record typed callback adjustments; callbacks must not
+  directly mutate live inventory or finalized events.
+- The approved callback surface also includes a separate typed on-hand phase
+  after demand and before ordering, the four scheduled built-ins documented in
+  `tutorials/callbacks.md`, and exact callback-instance reset semantics.
+- `SimulationEngine` 0.1.0 makes one composed order decision per enabled
+  decision opportunity. Supplier-specific multiple decisions are deferred for
+  a later typed design; low-level repeated-order accumulation remains intact.
 
 ## 90.2 Decisions still open
 
@@ -31,7 +46,7 @@ The approved identity and layout do not settle:
 - Git hosting URL and release automation;
 - maintainer and contact metadata;
 - whether visualization ships in the base install or an extra;
-- which experimental policy/metric semantics are public and stable.
+- which experimental policy/metric semantics are public and stable;
 
 Agents must label proposals for these items and obtain a decision before
 encoding them in fresh package metadata or API promises.
@@ -40,7 +55,7 @@ encoding them in fresh package metadata or API promises.
 
 Use the component boundary and exclusions in
 [10.3–10.4](10_system_context.md#103-candidate-public-boundary). Start file-level
-review from the 22 modules mapped in [70](70_module_reference.md), with selected
+review from the 23 modules mapped in [70](70_module_reference.md), with selected
 core unit tests. This is an allowlist for review, not permission to publish the
 rest of the private main tree.
 
@@ -113,7 +128,8 @@ source before editing.
 Distribution construction should begin only after there is an explicit decision log
 for the remaining API/build questions, a reviewed extraction file list, and a
 test split that excludes private adapters without weakening core evidence. The
-legacy post-finalization mutation hook has been removed; future callback design
-does not block 0.1.0. Until the remaining conditions are met, documentation and
-read-only design work may continue, but package artifacts should not be
-produced.
+legacy live-state hook surface has been removed and replaced by engine-applied,
+typed callback results. The callback implementation and evidence still require
+owner review before that release gate is closed. Until the remaining conditions
+are met, documentation and read-only design work may continue, but package
+artifacts should not be produced.

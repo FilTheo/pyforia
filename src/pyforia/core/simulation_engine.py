@@ -6,8 +6,8 @@ This module provides:
     - SimulationResult: Container for simulation outputs with summary statistics
 
 The engine wraps the existing simulation primitives (process_demand, update_inventory_with_orders,
-policy.predict) into an automated loop. Users can subclass SimulationEngine and override the
-documented pre-finalization hooks for custom behavior.
+policy.predict) into an automated loop. Typed ``SimulationCallback`` objects are
+the supported extension surface; they never receive live mutable engine state.
 
 Usage:
     # Simple usage
@@ -28,10 +28,7 @@ Usage:
     )
     print(result.summary())
 
-    # Custom subclass
-    class MyEngine(SimulationEngine):
-        def on_stockout(self, inventory, period):
-            print(f"Stockout at period {period}!")
+    # Ordered, removable callbacks are passed with callbacks=[...].
 """
 
 import copy
@@ -39,22 +36,51 @@ import hashlib
 import importlib.metadata
 import json
 import platform
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Union, Callable, Dict, List, Mapping, Optional
+from typing import Callable, Dict, List, Mapping, Optional, Union
 from uuid import uuid4
 
 import numpy as np
 import pandas as pd
 
+from pyforia.core.base_policy import BasePolicy
+from pyforia.core.callbacks import (
+    CallbackContext,
+    CallbackError,
+    InventoryAdjustmentResult,
+    OrderAdjustmentResult,
+    SimulationCallback,
+)
 from pyforia.core.data_structures import (
     InventoryStateDataFrame,
+    OrderDecision,
     _identifier_sample,
     _require_forward_frequency,
     _require_identifiers,
 )
-from pyforia.core.base_policy import BasePolicy
 from pyforia.core.order_constraints import ConstraintContext, OrderingConstraints
+
+CALLBACK_AUDIT_COLUMNS = (
+    "callback_position",
+    "callback_module",
+    "callback_class",
+    "phase",
+    "period",
+    "date",
+    "run_window",
+    "initial_decision",
+    "unique_id",
+    "before_value",
+    "after_value",
+    "quantity_delta",
+    "order_quantity",
+    "reason",
+    "source",
+    "received_date",
+    "lot_evidence",
+)
 
 
 # ============================================================================
@@ -84,6 +110,7 @@ class SimulationResult:
         event_frame: Optional[pd.DataFrame] = None,
         run_settings: Optional[dict] = None,
         run_manifest: Optional[dict] = None,
+        callback_audit: Optional[pd.DataFrame] = None,
     ):
         self.history = history
         self.inventory = inventory
@@ -95,6 +122,10 @@ class SimulationResult:
             event_frame.copy()
             if event_frame is not None
             else pd.DataFrame()
+        )
+        self._callback_audit = pd.DataFrame(
+            callback_audit.copy(deep=True) if callback_audit is not None else None,
+            columns=CALLBACK_AUDIT_COLUMNS,
         )
 
     def to_event_frame(self, window: Optional[str] = None) -> pd.DataFrame:
@@ -112,6 +143,10 @@ class SimulationResult:
         if "run_window" not in result.columns:
             raise ValueError("event frame does not contain run-window metadata")
         return result[result["run_window"] == window].copy()
+
+    def to_callback_audit_frame(self) -> pd.DataFrame:
+        """Return one defensive row per accepted callback effect."""
+        return self._callback_audit.copy(deep=True)
 
     def summary(self) -> Dict:
         """
@@ -585,7 +620,7 @@ class SimulationEngine:
     """
     Orchestrates multi-period inventory simulation for the DataFrame API.
 
-    Like PyTorch's DataLoader: simple for standard use, subclassable for custom behavior.
+    The engine owns all state transitions. Custom interventions use typed callbacks.
 
     The engine wraps existing primitives — it calls process_demand(),
     checks is_review_period, calls policy.predict(), and calls
@@ -609,18 +644,7 @@ class SimulationEngine:
             random_seed=None,
         )
 
-        # Custom simulation via subclassing
-        class MyEngine(SimulationEngine):
-            def on_review_period(self, inventory, policy, period):
-                return super().on_review_period(inventory, policy, period)
-
-            def on_stockout(self, inventory, period):
-                print(f"Stockout at period {period}!")
-
-    Hooks (override in subclass):
-        before_step(inventory, period)  — called before each period
-        on_review_period(inventory, policy, period) → inventory — ordering logic
-        on_stockout(inventory, period)  — called when any SKU has stockout
+    Engine subclass hooks that received live inventory are intentionally absent.
     """
 
     def __init__(self, verbose: int = 0):
@@ -653,6 +677,7 @@ class SimulationEngine:
         random_seed: Optional[int],
         policy_schedule: Optional[Mapping[int, BasePolicy]] = None,
         order_constraints: Optional[OrderingConstraints] = None,
+        callbacks: Optional[Sequence[SimulationCallback]] = None,
     ) -> SimulationResult:
         """
         Run a multi-period inventory simulation.
@@ -678,6 +703,8 @@ class SimulationEngine:
                 operating configuration as ``policy``. This supports rolling-
                 origin targets calculated outside the simulator.
             order_constraints: Optional explicit operational constraints.
+            callbacks: Optional ordered callback objects. The exact objects are
+                reset before the run and remain inspectable afterward.
 
         Returns:
             SimulationResult with history, final inventory state, and summary statistics.
@@ -744,6 +771,13 @@ class SimulationEngine:
         opening_inventory_fingerprint = self._inventory_fingerprint(inventory)
         opening_period = int(inventory.get_dataframe()['period'].iloc[0])
         opening_date = pd.Timestamp(inventory.get_dataframe()['date'].iloc[0])
+        self._active_callbacks, callback_manifest = self._prepare_callbacks(
+            callbacks,
+            opening_period=opening_period,
+            opening_date=opening_date,
+            period_offset=period_offset,
+        )
+        self._callback_audit_rows = []
         self._validate_policy_information_origin(
             policy,
             latest_allowed_origin=opening_date,
@@ -761,7 +795,10 @@ class SimulationEngine:
         )
 
         # Deferred import to avoid circular dependency (core ↔ utils)
-        from pyforia.utils.inventory_operations import process_demand, update_inventory_with_orders
+        from pyforia.utils.inventory_operations import (
+            process_demand,
+            update_inventory_with_orders,
+        )
         self._process_demand = process_demand
         self._update_inventory_primitive = update_inventory_with_orders
         self._update_inventory = self._tracked_inventory_update
@@ -784,6 +821,11 @@ class SimulationEngine:
             ))
 
         active_policy = copy.deepcopy(policy)
+        self._reset_callbacks(
+            inventory=inventory,
+            opening_period=opening_period,
+            opening_date=opening_date,
+        )
         update_log = []
         event_frames = []
         if initial_decision == "before_first_demand":
@@ -795,7 +837,13 @@ class SimulationEngine:
                 opening_period,
                 update_log,
             )
-            inventory = self.on_review_period(inventory, active_policy, opening_period)
+            inventory = self._execute_order_decision(
+                inventory,
+                active_policy,
+                opening_period,
+                run_window='warmup' if warmup_periods else 'scoring',
+                initial_decision=True,
+            )
             initial_event = _build_initial_decision_event(
                 inventory_before_initial_decision,
                 inventory,
@@ -825,8 +873,7 @@ class SimulationEngine:
             )
 
             inventory_period_opening = copy.deepcopy(inventory)
-            self.before_step(inventory, period)
-            inventory = self.before_demand(inventory, demand_df, period)
+            inventory = self._before_demand_transition(inventory, demand_df, period)
 
             # Advance time: increments period, processes deliveries, applies demand
             inventory_after_demand = self._process_demand(
@@ -840,10 +887,13 @@ class SimulationEngine:
             # Use actual inventory period (process_demand advances it)
             inv_df = inventory.get_dataframe()
             sim_period = int(inv_df['period'].iloc[0])
-
-            # Check for stockout
-            if inventory.has_stockout:
-                self.on_stockout(inventory, sim_period)
+            inventory = self._after_demand_transition(inventory, sim_period)
+            inventory_adjustments = self._run_inventory_callbacks(
+                inventory,
+                period=sim_period,
+                run_window=run_window,
+            )
+            inventory_after_demand = inventory
 
             # Order on review periods
             decision_enabled = run_window != 'settlement' or order_during_settlement
@@ -855,7 +905,13 @@ class SimulationEngine:
                     sim_period,
                     update_log,
                 )
-                inventory = self.on_review_period(inventory, active_policy, sim_period)
+                inventory = self._execute_order_decision(
+                    inventory,
+                    active_policy,
+                    sim_period,
+                    run_window=run_window,
+                    initial_decision=False,
+                )
 
             period_event = _build_period_event_frame(
                 inventory_before=inventory_period_opening,
@@ -871,7 +927,12 @@ class SimulationEngine:
             )
             period_event['run_window'] = run_window
             period_event = self._attach_order_audit(period_event)
-            period_event = self.after_period_event(period_event, inventory, sim_period)
+            period_event['expired_units'] = (
+                period_event['unique_id'].map(self._period_expired_units()).fillna(0.0)
+            )
+            period_event['inventory_adjustment_units'] = (
+                period_event['unique_id'].map(inventory_adjustments).fillna(0.0)
+            )
             _assert_event_flow_balance(period_event)
             event_frames.append(period_event)
 
@@ -906,6 +967,7 @@ class SimulationEngine:
             'policy_update_periods': sorted(policy_schedule),
             'policy_update_log': update_log,
             'order_constraints': copy.deepcopy(constraint_manifest),
+            'callbacks': copy.deepcopy(callback_manifest),
         }
         run_manifest = self._build_run_manifest(
             demand_data=demand_data,
@@ -926,6 +988,7 @@ class SimulationEngine:
             event_frame=pd.concat(event_frames, ignore_index=True) if event_frames else pd.DataFrame(),
             run_settings=run_settings,
             run_manifest=run_manifest,
+            callback_audit=pd.DataFrame(self._callback_audit_rows),
         )
 
         if self.verbose >= 1:
@@ -939,6 +1002,409 @@ class SimulationEngine:
             )
 
         return result
+
+    def _prepare_callbacks(
+        self,
+        callbacks,
+        *,
+        opening_period: int,
+        opening_date: pd.Timestamp,
+        period_offset,
+    ) -> tuple[list[SimulationCallback], list[dict]]:
+        if callbacks is None:
+            prepared = []
+        elif isinstance(callbacks, Sequence) and not isinstance(callbacks, (str, bytes)):
+            prepared = list(callbacks)
+        else:
+            raise TypeError("callbacks must be an ordered sequence of SimulationCallback objects")
+        invalid = [type(value).__name__ for value in prepared if not isinstance(value, SimulationCallback)]
+        if invalid:
+            raise TypeError(
+                "callbacks must contain only SimulationCallback objects; "
+                f"got {invalid[0]}"
+            )
+        manifests = []
+        for position, callback in enumerate(prepared):
+            try:
+                schedule = getattr(callback, "schedule", None)
+                if (
+                    isinstance(schedule, pd.DataFrame)
+                    and "period" in schedule
+                    and "date" in schedule
+                ):
+                    expected_dates = schedule["period"].map(
+                        lambda value: opening_date
+                        + (int(value) - opening_period) * period_offset
+                    )
+                    if not pd.to_datetime(schedule["date"]).eq(expected_dates).all():
+                        raise ValueError(
+                            "callback schedule period and date coordinates must identify "
+                            "the same simulation point"
+                        )
+                config = callback.get_config()
+                if not isinstance(config, dict):
+                    raise TypeError("get_config() must return a dictionary")
+                json.dumps(config, allow_nan=False)
+            except Exception as exc:
+                raise self._callback_error(
+                    callback, position, "preflight", opening_period, opening_date, exc
+                ) from exc
+            enabled = []
+            if type(callback).on_after_demand is not SimulationCallback.on_after_demand:
+                enabled.append("on_after_demand")
+            if type(callback).on_after_prediction is not SimulationCallback.on_after_prediction:
+                enabled.append("on_after_prediction")
+            manifests.append({
+                "position": position,
+                "module": type(callback).__module__,
+                "class": type(callback).__name__,
+                "enabled_phases": enabled,
+                "config": copy.deepcopy(config),
+            })
+        return prepared, manifests
+
+    def _reset_callbacks(
+        self,
+        *,
+        inventory: InventoryStateDataFrame,
+        opening_period: int,
+        opening_date: pd.Timestamp,
+    ) -> None:
+        """Reset caller callbacks after non-mutating run preflight succeeds."""
+        reset_context = self._callback_context(
+            inventory,
+            period=opening_period,
+            run_window="opening",
+            phase="reset",
+            initial_decision=False,
+            date=opening_date,
+        )
+        for position, callback in enumerate(self._active_callbacks):
+            try:
+                callback.reset(reset_context)
+            except Exception as exc:
+                raise self._callback_error(
+                    callback, position, "reset", opening_period, opening_date, exc
+                ) from exc
+
+    @staticmethod
+    def _callback_error(callback, position, phase, period, date, cause) -> CallbackError:
+        return CallbackError(
+            f"callback[{position}] {type(callback).__module__}.{type(callback).__name__} "
+            f"failed during {phase} at period {period}, date {pd.Timestamp(date)}: {cause}"
+        )
+
+    @staticmethod
+    def _callback_context(
+        inventory,
+        *,
+        period,
+        run_window,
+        phase,
+        initial_decision,
+        date=None,
+    ) -> CallbackContext:
+        state = inventory.get_dataframe()
+        current_date = pd.Timestamp(state["date"].iloc[0]) if date is None else pd.Timestamp(date)
+        return CallbackContext(
+            inventory=state,
+            sku_column=inventory.sku_column,
+            period=int(period),
+            date=current_date,
+            run_window=run_window,
+            phase=phase,
+            initial_decision=initial_decision,
+        )
+
+    def _before_demand_transition(self, inventory, demand_df, period):
+        """Private engine-owned work before the standard demand transition."""
+        return inventory
+
+    def _after_demand_transition(self, inventory, period):
+        """Private engine-owned work after demand and before callbacks."""
+        return inventory
+
+    def _period_expired_units(self) -> Mapping[object, float]:
+        return {}
+
+    def _apply_lot_adjustment(
+        self, unique_id, quantity_delta, received_date, current_date
+    ) -> str:
+        """Apply subclass-owned lot accounting and return deterministic evidence."""
+        return ""
+
+    def _validate_lot_adjustment(
+        self, unique_id, quantity_delta, received_date, current_date
+    ) -> None:
+        if quantity_delta <= 0 and not pd.isna(received_date):
+            raise ValueError("received_date is supported only for positive inventory additions")
+        if (
+            quantity_delta > 0
+            and not pd.isna(received_date)
+            and pd.Timestamp(received_date) > pd.Timestamp(current_date)
+        ):
+            raise ValueError("inventory adjustment.received_date cannot be in the future")
+
+    def _after_inventory_adjustment_batch(self, inventory) -> None:
+        """Validate subclass-owned physical-state mirrors after a full batch."""
+
+    @staticmethod
+    def _validated_reason_source(frame: pd.DataFrame, label: str) -> pd.DataFrame:
+        for column in ("reason", "source"):
+            if (
+                frame[column].isna().any()
+                or not frame[column].map(lambda value: isinstance(value, str)).all()
+                or frame[column].str.strip().eq("").any()
+            ):
+                raise ValueError(f"{label}.{column} must contain nonblank strings")
+        return frame
+
+    def _run_inventory_callbacks(self, inventory, *, period, run_window) -> dict:
+        aggregate = {}
+        for position, callback in enumerate(self._active_callbacks):
+            context = self._callback_context(
+                inventory,
+                period=period,
+                run_window=run_window,
+                phase="on_after_demand",
+                initial_decision=False,
+            )
+            try:
+                result = callback.on_after_demand(context)
+                if result is None:
+                    continue
+                if not isinstance(result, InventoryAdjustmentResult):
+                    raise TypeError(
+                        "on_after_demand must return InventoryAdjustmentResult or None"
+                    )
+                frame = self._validate_inventory_adjustment_result(result, inventory)
+                audit = self._apply_inventory_adjustment_batch(
+                    inventory, frame, callback, position, context
+                )
+            except Exception as exc:
+                if isinstance(exc, CallbackError):
+                    raise
+                raise self._callback_error(
+                    callback, position, "on_after_demand", period, context.date, exc
+                ) from exc
+            self._callback_audit_rows.extend(audit)
+            for row in frame.itertuples(index=False):
+                aggregate[row.unique_id] = aggregate.get(row.unique_id, 0.0) + float(
+                    row.quantity_delta
+                )
+        if inventory._history:
+            inventory._history[-1] = inventory.data.copy()
+        return aggregate
+
+    def _validate_inventory_adjustment_result(self, result, inventory) -> pd.DataFrame:
+        frame = result.get_dataframe()
+        required = {"unique_id", "quantity_delta", "reason", "source"}
+        allowed = required | {"received_date"}
+        missing = sorted(required - set(frame.columns))
+        extra = sorted(set(frame.columns) - allowed)
+        if missing:
+            raise ValueError(f"inventory adjustment is missing required columns: {missing}")
+        if extra:
+            raise ValueError(f"inventory adjustment contains unsupported columns: {extra}")
+        if frame.empty:
+            return frame.copy()
+        actual = _require_identifiers(frame, "unique_id", "inventory adjustment", unique=True)
+        state = inventory.get_dataframe()
+        expected = _require_identifiers(
+            state, inventory.sku_column, "inventory_state", unique=True
+        )
+        unknown = actual - expected
+        if unknown:
+            raise ValueError(f"inventory adjustment contains unknown SKUs: {_identifier_sample(unknown)}")
+        quantity = pd.to_numeric(frame["quantity_delta"], errors="coerce")
+        if quantity.isna().any() or not np.isfinite(quantity.to_numpy(dtype=float)).all():
+            raise ValueError("inventory adjustment.quantity_delta must contain finite numbers")
+        prepared = self._validated_reason_source(frame.copy(), "inventory adjustment")
+        prepared["quantity_delta"] = quantity.astype(float)
+        if "received_date" in prepared:
+            raw_dates = prepared["received_date"]
+            dates = pd.to_datetime(raw_dates, errors="coerce")
+            if (raw_dates.notna() & dates.isna()).any():
+                raise ValueError(
+                    "inventory adjustment.received_date must contain valid timestamps or missing values"
+                )
+            prepared["received_date"] = dates
+        return prepared
+
+    def _apply_inventory_adjustment_batch(
+        self, inventory, frame, callback, position, context
+    ) -> list[dict]:
+        state = inventory.data
+        indexed = state.set_index(inventory.sku_column)
+        # Validate the complete batch before applying any row.
+        for row in frame.itertuples(index=False):
+            before = float(indexed.loc[row.unique_id, "on_hand"])
+            backlog = float(indexed.loc[row.unique_id, "backorders"])
+            delta = float(row.quantity_delta)
+            if delta < 0 and -delta > before + 1e-9:
+                raise ValueError(
+                    f"inventory adjustment removal exceeds on_hand for SKU {row.unique_id}"
+                )
+            if delta > 0 and backlog > 1e-9:
+                raise ValueError(
+                    f"positive inventory adjustment is not supported while SKU {row.unique_id} has backlog"
+                )
+            received_date = getattr(row, "received_date", pd.NaT)
+            self._validate_lot_adjustment(
+                row.unique_id, delta, received_date, context.date
+            )
+        audit = []
+        for row in frame.itertuples(index=False):
+            mask = state[inventory.sku_column] == row.unique_id
+            before = float(state.loc[mask, "on_hand"].iloc[0])
+            delta = float(row.quantity_delta)
+            received_date = getattr(row, "received_date", pd.NaT)
+            lot_evidence = self._apply_lot_adjustment(
+                row.unique_id, delta, received_date, context.date
+            )
+            after = before + delta
+            state.loc[mask, "on_hand"] = after
+            audit.append(self._audit_row(
+                callback, position, context, row.unique_id,
+                before=before, after=after, delta=delta,
+                order_quantity=np.nan, reason=row.reason, source=row.source,
+                received_date=received_date, lot_evidence=lot_evidence,
+            ))
+        inventory._validate_ready_state()
+        self._after_inventory_adjustment_batch(inventory)
+        return audit
+
+    def _execute_order_decision(
+        self, inventory, policy, period, *, run_window, initial_decision
+    ):
+        raw = policy.predict(inventory, current_period=period)
+        if not isinstance(raw, OrderDecision):
+            raise TypeError("policy.predict must return an OrderDecision")
+        adjusted = raw
+        for position, callback in enumerate(self._active_callbacks):
+            context = self._callback_context(
+                inventory,
+                period=period,
+                run_window=run_window,
+                phase="on_after_prediction",
+                initial_decision=initial_decision,
+            )
+            decision_view = OrderDecision(
+                adjusted.get_dataframe(),
+                sku_column=adjusted.sku_column,
+                lead_time=adjusted.lead_time,
+                review_period=adjusted.review_period,
+            )
+            try:
+                result = callback.on_after_prediction(decision_view, context)
+                if result is None:
+                    continue
+                if not isinstance(result, OrderAdjustmentResult):
+                    raise TypeError(
+                        "on_after_prediction must return OrderAdjustmentResult or None"
+                    )
+                adjusted, audit = self._apply_order_adjustment_result(
+                    adjusted, result, inventory, callback, position, context
+                )
+            except Exception as exc:
+                if isinstance(exc, CallbackError):
+                    raise
+                raise self._callback_error(
+                    callback, position, "on_after_prediction", period, context.date, exc
+                ) from exc
+            self._callback_audit_rows.extend(audit)
+        self._capture_callback_order_trail(raw, adjusted, inventory)
+        return self._tracked_inventory_update(inventory, adjusted, policy=policy)
+
+    def _apply_order_adjustment_result(
+        self, decision, result, inventory, callback, position, context
+    ) -> tuple[OrderDecision, list[dict]]:
+        frame = result.get_dataframe()
+        required = {"unique_id", "order_quantity", "reason", "source"}
+        missing = sorted(required - set(frame.columns))
+        extra = sorted(set(frame.columns) - required)
+        if missing:
+            raise ValueError(f"order adjustment is missing required columns: {missing}")
+        if extra:
+            raise ValueError(f"order adjustment contains unsupported columns: {extra}")
+        if frame.empty:
+            return decision, []
+        actual = _require_identifiers(frame, "unique_id", "order adjustment", unique=True)
+        current = decision.get_dataframe()
+        current_ids = _require_identifiers(
+            current, decision.sku_column, "order decision", unique=True
+        )
+        unknown = actual - current_ids
+        if unknown:
+            raise ValueError(
+                "order adjustment targets SKUs absent from the predicted decision: "
+                f"{_identifier_sample(unknown)}"
+            )
+        quantities = pd.to_numeric(frame["order_quantity"], errors="coerce")
+        if (
+            quantities.isna().any()
+            or not np.isfinite(quantities.to_numpy(dtype=float)).all()
+            or (quantities < 0).any()
+        ):
+            raise ValueError("order adjustment.order_quantity must contain finite values >= 0")
+        prepared = self._validated_reason_source(frame.copy(), "order adjustment")
+        prepared["order_quantity"] = quantities.astype(float)
+        output = current.copy()
+        audit = []
+        for row in prepared.itertuples(index=False):
+            mask = output[decision.sku_column] == row.unique_id
+            before = float(output.loc[mask, "order_quantity"].iloc[0])
+            after = float(row.order_quantity)
+            output.loc[mask, "order_quantity"] = after
+            audit.append(self._audit_row(
+                callback, position, context, row.unique_id,
+                before=before, after=after, delta=after - before,
+                order_quantity=after, reason=row.reason, source=row.source,
+                received_date=pd.NaT, lot_evidence="",
+            ))
+        return OrderDecision(
+            output,
+            sku_column=decision.sku_column,
+            lead_time=decision.lead_time,
+            review_period=decision.review_period,
+        ), audit
+
+    @staticmethod
+    def _audit_row(
+        callback, position, context, unique_id, *, before, after, delta,
+        order_quantity, reason, source, received_date, lot_evidence,
+    ) -> dict:
+        return {
+            "callback_position": position,
+            "callback_module": type(callback).__module__,
+            "callback_class": type(callback).__name__,
+            "phase": context.phase,
+            "period": context.period,
+            "date": context.date,
+            "run_window": context.run_window,
+            "initial_decision": context.initial_decision,
+            "unique_id": unique_id,
+            "before_value": float(before),
+            "after_value": float(after),
+            "quantity_delta": float(delta),
+            "order_quantity": order_quantity,
+            "reason": reason,
+            "source": source,
+            "received_date": received_date,
+            "lot_evidence": lot_evidence,
+        }
+
+    def _capture_callback_order_trail(self, raw, adjusted, inventory) -> None:
+        state_ids = inventory.get_dataframe()[inventory.sku_column].tolist()
+        raw_map = raw.get_dataframe().set_index(raw.sku_column)["order_quantity"]
+        adjusted_map = adjusted.get_dataframe().set_index(adjusted.sku_column)["order_quantity"]
+        self._captured_callback_order_audits.append(pd.DataFrame({
+            "unique_id": state_ids,
+            "requested_order_quantity": pd.Series(state_ids).map(raw_map).fillna(0.0),
+            "callback_adjusted_order_quantity": pd.Series(state_ids).map(adjusted_map).fillna(0.0),
+        }).assign(callback_adjustment_units=lambda value: (
+            value["callback_adjusted_order_quantity"] - value["requested_order_quantity"]
+        )))
 
     @staticmethod
     def _run_window(period: int, warmup_periods: int, scoring_periods: int) -> str:
@@ -954,6 +1420,7 @@ class SimulationEngine:
         self._captured_sku_order_line_counts = {}
         self._captured_order_line_quantity_squared_sums = {}
         self._captured_order_audits = []
+        self._captured_callback_order_audits = []
 
     def _tracked_inventory_update(self, inventory, orders, policy=None):
         """Execute one order decision and retain its direct event counts."""
@@ -1405,32 +1872,27 @@ class SimulationEngine:
             return demand_source[demand_source['period'] == period]
         return demand_fn
 
-    # ---- Overridable hooks ----
-
-    def on_review_period(self, inventory, policy, period):
-        """
-        Called on review periods to place orders.
-
-        Override to customize ordering logic (e.g., reforecasting, conditional ordering).
-        Must return the updated InventoryStateDataFrame.
-
-        Args:
-            inventory: Current InventoryStateDataFrame
-            policy: The fitted policy
-            period: Current simulation period (0-indexed loop counter)
-
-        Returns:
-            Updated InventoryStateDataFrame with orders placed
-        """
-        orders = policy.predict(inventory, current_period=period)
-        inventory = self._update_inventory(inventory, orders, policy=policy)
-        return inventory
+    # ---- Canonical order audit ----
 
     def _attach_order_audit(self, event_df: pd.DataFrame) -> pd.DataFrame:
         """Attach requested-versus-feasible order quantities to event rows."""
         event_df = event_df.copy()
-        if not self._captured_order_audits:
+        if self._captured_callback_order_audits:
+            callback_audit = pd.concat(
+                self._captured_callback_order_audits, ignore_index=True
+            ).groupby('unique_id', as_index=False, sort=False).agg({
+                'requested_order_quantity': 'sum',
+                'callback_adjusted_order_quantity': 'sum',
+                'callback_adjustment_units': 'sum',
+            })
+            event_df = event_df.merge(
+                callback_audit, on='unique_id', how='left', validate='one_to_one'
+            )
+        else:
             event_df['requested_order_quantity'] = event_df['order_quantity']
+            event_df['callback_adjusted_order_quantity'] = event_df['order_quantity']
+            event_df['callback_adjustment_units'] = 0.0
+        if not self._captured_order_audits:
             event_df['constrained_order_quantity'] = event_df['order_quantity']
             event_df['constraint_adjustment_units'] = 0.0
             event_df['constraint_binding_flag'] = False
@@ -1439,7 +1901,6 @@ class SimulationEngine:
             return event_df
         audit = pd.concat(self._captured_order_audits, ignore_index=True)
         audit = audit.groupby('unique_id', as_index=False, sort=False).agg({
-            'requested_order_quantity': 'sum',
             'constrained_order_quantity': 'sum',
             'constraint_adjustment_units': 'sum',
             'constraint_binding_flag': 'any',
@@ -1454,41 +1915,6 @@ class SimulationEngine:
             how='left',
             validate='one_to_one',
         )
-
-    def on_stockout(self, inventory, period):
-        """
-        Called when any SKU has a stockout in the current period.
-
-        Override for custom stockout handling (logging, alerts, etc.).
-
-        Args:
-            inventory: Current InventoryStateDataFrame (after demand processing)
-            period: Current simulation period (0-indexed loop counter)
-        """
-        pass
-
-    def before_step(self, inventory, period):
-        """Called before each period's demand processing."""
-        pass
-
-    def before_demand(self, inventory, demand_df, period):
-        """
-        Called immediately before demand is processed.
-
-        Override to update inventory state for calendar effects such as
-        spoilage/expiry before the normal Pyforia demand transition runs.
-        Must return an InventoryStateDataFrame.
-        """
-        return inventory
-
-    def after_period_event(self, event_df, inventory, period):
-        """
-        Called after the normalized event frame is built for one period.
-
-        Override to add audit columns derived from hook-managed state. The
-        returned frame is appended to SimulationResult.to_event_frame().
-        """
-        return event_df
 
     # ---- Multi-policy comparison ----
 
@@ -1510,6 +1936,7 @@ class SimulationEngine:
         labels: Optional[List[str]] = None,
         policy_schedules: Optional[List[Optional[Mapping[int, BasePolicy]]]] = None,
         order_constraints: Optional[OrderingConstraints] = None,
+        callbacks: Optional[Sequence[SimulationCallback]] = None,
     ) -> 'ComparisonResult':
         """
         Run simulation for multiple policies and compare results.
@@ -1534,6 +1961,8 @@ class SimulationEngine:
             policy_schedules: Optional list of rolling fitted-policy schedules,
                 one per policy.
             order_constraints: Optional constraints applied identically to each policy.
+            callbacks: Optional ordered callback objects, reset before each
+                comparison branch. Their final state reflects the last branch.
 
         Returns:
             ComparisonResult with all SimulationResults accessible by label.
@@ -1596,6 +2025,7 @@ class SimulationEngine:
                 random_seed=random_seed,
                 policy_schedule=schedule,
                 order_constraints=order_constraints,
+                callbacks=callbacks,
             )
             result.run_manifest['demand_source']['type'] = original_demand_source_type
             result.run_manifest['demand_source']['materialized_once_for_comparison'] = True

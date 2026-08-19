@@ -12,7 +12,7 @@ cover these groups:
 | opening state | starting on-hand, backlog, pipeline, inventory position |
 | demand/receipt flows | demand, received, current fulfillment, old backlog fulfillment, shortage |
 | ending state | ending on-hand, backlog, pipeline, inventory position |
-| order flow | requested, adjustment, constrained, final quantity, timing |
+| order flow | raw requested, callback-adjusted, constrained, final quantity, timing |
 | policy diagnostics | target level, safety stock, review flag |
 | operational audit | order-event/line counts, capacity flags, constraint audit |
 | perishability | expired units and explicit stock adjustment |
@@ -30,6 +30,8 @@ all flow identities from [20.8](20_data_and_time_contracts.md#208-balance-equati
 - validated events;
 - explicit run settings;
 - the run manifest.
+- a normalized callback-audit frame exposed through
+  `to_callback_audit_frame()`.
 
 `to_event_frame(window=...)` filters the ledger. Summary behavior uses scoring
 events and exact event-based metrics. Consumers should persist both events and
@@ -56,8 +58,9 @@ operate on the same validated rows.
 
 Demand, fulfilled units, shortage, lost sales, backlog unit-periods, terminal
 backlog, and terminal pipeline are direct event aggregations. The ambiguous
-name `backorder_units_end` is rejected; callers must choose a precise backlog
-measure.
+name `backorder_units_end` is not part of the evaluation API. Callers must
+choose `backlog_unit_periods` for summed backlog exposure or
+`terminal_backlog_units` for final-period backlog.
 
 ### Service
 

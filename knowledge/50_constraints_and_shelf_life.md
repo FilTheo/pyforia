@@ -75,17 +75,19 @@ SKU. Opening-expiry handling is one of:
 
 The engine records a fingerprint of the opening lot configuration.
 
-## 50.5 Shelf-life hook integration
+## 50.5 Shelf-life engine integration
 
-`ShelfLifeEngine` extends normal simulation through hooks:
+`ShelfLifeEngine` extends normal simulation through private engine-owned phases:
 
 1. reset the ledger at run start;
-2. in `before_demand`, expire old lots, reduce state on-hand accordingly, and
+2. before demand, expire old lots, reduce state on-hand accordingly, and
    register the current pipeline receipt as a new lot;
 3. run the standard demand transition;
-4. in `after_period_event`, attach expired units, consume FIFO quantities for
-   current demand fulfillment and old backlog fulfillment, and assert that lot
-   balances equal ending on-hand.
+4. after demand, consume FIFO quantities for current demand fulfillment and old
+   backlog fulfillment;
+5. apply typed physical callback requests, adding explicitly dated lots or
+   consuming FIFO lots; and
+6. assert after each accepted batch that lot balances equal ending on-hand.
 
 Expiry therefore appears as a distinct event flow and participates in the
 on-hand balance equation. It is not silently folded into demand or shortage.
@@ -98,6 +100,6 @@ on-hand balance equation. It is not silently folded into demand or shortage.
   final all-rule validation must catch such ordering conflicts.
 - Backlog fulfillment consumes received lots before current demand, matching
   the base state transition.
-- Any new hook that changes physical state must update the event ledger before
-  flow validation. A state-only mutation makes evaluation scientifically
-  inconsistent.
+- Physical callbacks run after demand and before ordering. Positive shelf-life
+  additions require a nonfuture, unexpired `received_date`; removals consume
+  FIFO lots. Every accepted effect enters the event ledger before validation.

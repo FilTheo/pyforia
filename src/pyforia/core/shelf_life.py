@@ -4,8 +4,8 @@ FIFO shelf-life primitives for the DataFrame-based inventory system.
 This module provides:
     - FIFOLotLedger: Tracks on-hand stock as dated lots, consumed oldest-first,
       with age-based expiry.
-    - ShelfLifeEngine: SimulationEngine subclass that wires the ledger into the
-      simulation loop via the before_demand/after_period_event hooks, so
+    - ShelfLifeEngine: SimulationEngine subclass that wires the ledger into
+      private engine-owned lifecycle phases, so
       expired stock leaves on_hand before demand is processed and every event
       row carries an ``expired_units`` column.
 
@@ -34,6 +34,7 @@ Usage:
 """
 
 import copy
+import json
 import warnings
 from typing import Dict, List
 
@@ -164,20 +165,29 @@ class FIFOLotLedger:
                 expired[unique_id] = expired_qty
         return expired
 
-    def consume(self, unique_id, qty: float) -> None:
+    def consume(self, unique_id, qty: float) -> list[dict]:
         """Consume qty from the oldest lots first."""
         remaining = float(qty)
         lots = self.lots_by_sku.setdefault(unique_id, [])
         kept = []
+        consumed = []
         for lot in lots:
             lot_qty = float(lot["qty"])
             if remaining > 0:
                 used = min(lot_qty, remaining)
                 lot_qty -= used
                 remaining -= used
+                if used > 0:
+                    consumed.append({
+                        "received_date": pd.Timestamp(lot["date"]).isoformat(),
+                        "quantity": float(used),
+                    })
             if lot_qty > 1e-9:
                 kept.append({"date": lot["date"], "qty": lot_qty})
         self.lots_by_sku[unique_id] = kept
+        if remaining > 1e-9:
+            raise ValueError(f"FIFO lot ledger has insufficient stock for SKU {unique_id}")
+        return consumed
 
     def balances(self) -> pd.Series:
         """Total ledger quantity per SKU."""
@@ -198,9 +208,9 @@ class ShelfLifeEngine(SimulationEngine):
         1. Expired lots are removed from the ledger and deducted from on_hand.
         2. Stock arriving this period (in_transit[0]) is recorded as a new lot.
 
-    After the period event frame is built, fulfilled demand is consumed from
-    the oldest lots and an ``expired_units`` column is added. The ledger is
-    asserted to match Pyforia on_hand every period.
+    After demand, fulfilled units are consumed from the oldest lots before
+    typed physical callbacks run. The ledger is asserted to match Pyforia
+    on_hand after demand and after every accepted callback batch.
 
     Opening lot ages are mandatory run inputs. Backorder clearances consume the
     same FIFO lots as current-period fulfilled demand.
@@ -237,6 +247,7 @@ class ShelfLifeEngine(SimulationEngine):
         opening_expiry_handling="reject",
         policy_schedule=None,
         order_constraints=None,
+        callbacks=None,
     ):
         if opening_expiry_handling not in {
             "reject",
@@ -301,6 +312,7 @@ class ShelfLifeEngine(SimulationEngine):
             random_seed=random_seed,
             policy_schedule=policy_schedule,
             order_constraints=order_constraints,
+            callbacks=callbacks,
         )
         shelf_settings = {
             "shelf_life": self.shelf_life_days,
@@ -341,7 +353,7 @@ class ShelfLifeEngine(SimulationEngine):
             raise ValueError("shelf-life demand requires an explicit period date")
         return pd.Timestamp(demand_df["date"].iloc[0])
 
-    def before_demand(self, inventory, demand_df, period):
+    def _before_demand_transition(self, inventory, demand_df, period):
         current_date = self._current_date(inventory, demand_df)
         self.expired_this_period = self.ledger.expire(current_date)
         if self.expired_this_period:
@@ -353,20 +365,73 @@ class ShelfLifeEngine(SimulationEngine):
             self.ledger.receive(unique_id, qty, current_date)
         return inventory
 
-    def after_period_event(self, event_df, inventory, period):
-        event_df = event_df.copy()
-        event_df["expired_units"] = (
-            event_df["unique_id"].map(self.expired_this_period).fillna(0.0)
-        )
-        for row in event_df.itertuples(index=False):
+    def _after_demand_transition(self, inventory, period):
+        state = inventory.get_dataframe()
+        for unique_id, fulfilled, backorders_fulfilled in state[[
+            inventory.sku_column,
+            "latest_fulfilled",
+            "latest_backorders_fulfilled",
+        ]].itertuples(index=False, name=None):
             self.ledger.consume(
-                row.unique_id,
-                float(row.fulfilled_units) + float(row.backorders_fulfilled),
+                unique_id,
+                float(fulfilled) + float(backorders_fulfilled),
             )
+        self._assert_lot_balance(inventory)
+        return inventory
+
+    def _period_expired_units(self):
+        return dict(self.expired_this_period)
+
+    def _apply_lot_adjustment(
+        self, unique_id, quantity_delta, received_date, current_date
+    ) -> str:
+        if quantity_delta > 0:
+            if pd.isna(received_date):
+                raise ValueError(
+                    "positive ShelfLifeEngine inventory adjustments require received_date"
+                )
+            received_date = pd.Timestamp(received_date)
+            current_date = pd.Timestamp(current_date)
+            if received_date > current_date:
+                raise ValueError("inventory adjustment.received_date cannot be in the future")
+            if (current_date - received_date).days >= self.shelf_life_days:
+                raise ValueError("inventory adjustment would add stock that is already expired")
+            self.ledger.receive(unique_id, quantity_delta, received_date)
+            return json.dumps([{
+                "action": "receive",
+                "received_date": received_date.isoformat(),
+                "quantity": float(quantity_delta),
+            }], sort_keys=True, separators=(",", ":"))
+        if quantity_delta < 0:
+            consumed = self.ledger.consume(unique_id, -quantity_delta)
+            return json.dumps(
+                [{"action": "consume", **row} for row in consumed],
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        return "[]"
+
+    def _validate_lot_adjustment(
+        self, unique_id, quantity_delta, received_date, current_date
+    ):
+        super()._validate_lot_adjustment(
+            unique_id, quantity_delta, received_date, current_date
+        )
+        if quantity_delta > 0:
+            if pd.isna(received_date):
+                raise ValueError(
+                    "positive ShelfLifeEngine inventory adjustments require received_date"
+                )
+            if (pd.Timestamp(current_date) - pd.Timestamp(received_date)).days >= self.shelf_life_days:
+                raise ValueError("inventory adjustment would add stock that is already expired")
+
+    def _assert_lot_balance(self, inventory):
         lot_balance = self.ledger.balances()
         state = inventory.get_dataframe()
         expected = state[inventory.sku_column].map(lot_balance).fillna(0.0).to_numpy(dtype=float)
         actual = state["on_hand"].to_numpy(dtype=float)
         if not np.allclose(actual, expected, atol=1e-6):
             raise AssertionError("FIFO shelf-life ledger no longer matches Pyforia on_hand")
-        return event_df
+
+    def _after_inventory_adjustment_batch(self, inventory):
+        self._assert_lot_balance(inventory)

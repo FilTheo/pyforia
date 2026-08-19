@@ -322,6 +322,19 @@ def test_sq_requires_explicit_quantity_and_provenance():
         )
 
 
+def test_continuous_review_is_evaluated_each_discrete_period():
+    policy = ContinuousReviewPolicy(
+        lead_time=1,
+        policy_type="sQ",
+        service_level=0.95,
+        order_quantity=12,
+        order_quantity_source="supplier_case_pack",
+        allow_backorders=False,
+    )
+
+    assert policy.review_period == 1
+
+
 def test_sq_records_direct_reorder_target_and_quantity_provenance():
     targets = pd.DataFrame({
         "unique_id": ["A"],

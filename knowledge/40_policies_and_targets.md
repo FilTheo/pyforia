@@ -81,7 +81,9 @@ independence assumption and is not a general uncertainty model.
 
 `ContinuousReviewPolicy` is checked once per discrete period
 (`review_period = 1`); “continuous” is the traditional policy name, not
-continuous physical time.
+continuous physical time. The project owner approved retaining this public
+name for 0.1.0 with that timing stated explicitly in API documentation and
+examples.
 
 For `(s,Q)`:
 

@@ -531,32 +531,6 @@ class InventoryStateDataFrame:
         self.data['on_hand'] = self.data[self.sku_column].map(stock_by_sku).astype(float)
         return self
 
-    def initialize_from_forecast(self,
-                                  forecast_df: pd.DataFrame,
-                                  fraction: float = 0.5,
-                                  forecast_column: str = 'y',
-                                  sku_column: Optional[str] = None,
-                                  start_date: Optional[pd.Timestamp] = None) -> 'InventoryStateDataFrame':
-        """Reject the removed forecast-fraction opening-stock heuristic."""
-        raise ValueError(
-            "initialize_from_forecast was removed because it encoded a heuristic "
-            "opening-stock rule; calculate opening stock explicitly and use "
-            "initialize_from_observed"
-        )
-
-    def initialize_from_historical_data(self,
-                                        historical_df: Optional[pd.DataFrame] = None,
-                                        coverage_percentage: float = 0.95,
-                                        demand_column: str = 'y',
-                                        sku_column: Optional[str] = None,
-                                        start_date: Optional[pd.Timestamp] = None) -> 'InventoryStateDataFrame':
-        """Reject the removed mean-plus-z opening-stock heuristic."""
-        raise ValueError(
-            "initialize_from_historical_data was removed because mean + z*std is "
-            "an experimental assumption; calculate opening stock explicitly and use "
-            "initialize_from_observed"
-        )
-
     def process_demand(self,
                       demand_df: pd.DataFrame,
                       review_period: int,

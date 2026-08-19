@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+import pyforia.evaluation as evaluation
 from pyforia.core.base_policy import BasePolicy
 from pyforia.core.data_structures import InventoryStateDataFrame, OrderDecision
 from pyforia.core.simulation_engine import SimulationEngine
@@ -26,6 +27,11 @@ from pyforia.evaluation import (
     terminal_pipeline_units,
     total_cost,
 )
+
+
+def test_ambiguous_backorder_metric_is_absent():
+    assert not hasattr(evaluation, "backorder_units_end")
+    assert "backorder_units_end" not in evaluation.__all__
 
 
 class FixedOrderPolicy(BasePolicy):

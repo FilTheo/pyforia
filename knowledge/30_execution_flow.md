@@ -10,7 +10,8 @@
 - total, warmup, scoring, and settlement period counts;
 - optional ordering constraints;
 - optional initial order decision;
-- hook behavior supplied by the engine class, including shelf-life behavior.
+- optional ordered typed callbacks;
+- engine-owned shelf-life behavior.
 
 It returns a `SimulationResult` containing state history, final inventory,
 canonical event rows, run settings, and a provenance manifest.
@@ -24,9 +25,15 @@ Before period execution, the engine checks:
 3. demand source name, seed, type, and generation settings;
 4. that the policy is fitted and compatible with state settings;
 5. state readiness, frequency, backorder mode, and initial-decision timing;
-6. forecast origin/frequency and scheduled-policy decision dates;
-7. the complete demand grid after materializing a callable once;
-8. reset constraint state and create private deep copies of mutable run inputs.
+6. validate callback objects and JSON-serializable configuration without
+   resetting caller state;
+7. forecast origin/frequency and scheduled-policy decision dates;
+8. the complete demand grid after materializing a callable once;
+9. reset copied constraint state and create private deep copies of mutable run
+   inputs;
+10. reset the exact caller-supplied callback instances only after the other
+    non-mutating preflight checks succeed and immediately before simulation
+    execution.
 
 Policy schedules are strict. A scheduled policy must be the same class and have
 the same lead time, review period, service level, and shortage mode as the base
@@ -46,41 +53,48 @@ For each demand period the engine performs:
 
 ```text
 copy opening state
-  -> before_step
-  -> before_demand
+  -> private engine-owned pre-demand phase (including expiry)
   -> state.process_demand
        (advance clock, receive, clear backlog, fulfill current demand)
-  -> on_stockout
-  -> if review period: choose scheduled policy and on_review_period
+  -> private engine-owned post-demand phase
+  -> ordered on_after_demand callbacks with typed on-hand results
+  -> if review period: choose scheduled policy
        -> policy.predict
+       -> ordered on_after_prediction callbacks with typed order results
        -> apply ordered constraint chain
        -> schedule accepted quantity in pipeline
   -> build normalized one-row-per-SKU event
-  -> attach constraint audit
-  -> after_period_event
+  -> attach callback and constraint audit
   -> validate flow balances
   -> append event
 ```
 
-Hook placement is part of observable behavior. `before_demand` can alter stock
-before the standard transition; `after_period_event` can add audited event
-fields before flow validation. There is no post-finalization state-mutation
-hook: once the balance checks pass and the event is appended, that period is
-accounting evidence. See the resolved legacy-hook finding in
-[80.5](80_tests_and_evidence.md#805-resolved-legacy-after_step-hook).
+`on_after_demand` means after demand and before ordering in 0.1.0. It runs once
+per warmup, scoring, and settlement demand period, but not at the separate
+opening-order coordinate. `on_after_prediction` runs only after an actual
+prediction, including an enabled opening decision. Callbacks cannot create a
+new review opportunity. All former subclass hooks receiving live state are
+absent; once an event is validated it is accounting evidence.
 
 ## 30.5 Review and order path
 
 On a decision period:
 
 1. the selected fitted policy reads inventory position;
-2. it returns a requested `OrderDecision` without changing state;
-3. `_tracked_inventory_update` passes the request through constraints in their
+2. it returns a raw requested `OrderDecision` without changing state;
+3. ordered callbacks propose validated absolute order quantities;
+4. `_tracked_inventory_update` passes the callback-adjusted request through constraints in their
    declared order;
-4. requested, adjustment, constrained, and final quantities are captured;
-5. event/line/order-size counters are updated;
-6. the accepted order is placed in the lead-time pipeline;
-7. diagnostics such as target and safety stock flow into state and events.
+5. raw, callback-adjusted, constrained, and final quantities are captured;
+6. event/line/order-size counters are updated;
+7. the accepted order is placed in the lead-time pipeline;
+8. diagnostics such as target and safety stock flow into state and events.
+
+The engine performs this path once per enabled decision opportunity. The
+current callback result adjusts one composed decision; it does not add a second
+supplier-specific order. Multiple applications can still accumulate through
+the lower-level inventory operation, but a typed multi-supplier engine surface
+is outside 0.1.0.
 
 `order_event_count` represents a system-level event and is stored once on the
 first SKU event row so that summing rows remains correct. SKU order-line counts
@@ -103,6 +117,9 @@ source once. Each scenario receives deep-copied inventory, policy, and
 constraints but the same realized demand path. The result manifest marks the
 comparison context. This supports paired scenario analysis without accidental
 demand resampling or shared mutable stock.
+The exact callback instances are reset after branch preflight and before each
+branch executes; authoritative branch-specific effects remain in each result's
+callback audit.
 
 ## 30.8 Output provenance
 
