@@ -5,9 +5,22 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
 build/
 dist/
+
+# Internal agent guidance stays local and is not part of the public repository.
 knowledge/*
-!knowledge/93_public_api_contract.md
+
+# Intentional GitHub-only notebook assets; MANIFEST.in excludes them from PyPI.
+!examples/
+!examples/notebooks/
+!examples/notebooks/data/
+!examples/notebooks/data/m5/
+!examples/notebooks/data/m5/**
 .venv/
 site/
