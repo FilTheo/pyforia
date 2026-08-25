@@ -97,7 +97,7 @@ class BasePolicy:
         self.fitted_ = False
         self.policy_name = self.__class__.__name__
 
-    def fit(self, forecast_df: pd.DataFrame, **kwargs) -> 'BasePolicy':
+    def fit(self, forecast_df: pd.DataFrame, **kwargs: object) -> 'BasePolicy':
         """
         Calculate policy parameters from forecast data.
 
@@ -114,7 +114,7 @@ class BasePolicy:
 
     def predict(self,
                 inventory_state_df: Union[pd.DataFrame, InventoryStateDataFrame],
-                **kwargs) -> Union[OrderDecision, pd.DataFrame]:
+                **kwargs: object) -> Union[OrderDecision, pd.DataFrame]:
         """
         Calculate order quantities from current inventory state.
 

@@ -1,4 +1,4 @@
-# Pyforia agent guide
+  # Pyforia agent guide
 
 ## A. Status and authority
 
@@ -22,8 +22,9 @@ Read [`knowledge/00_index.md`](knowledge/00_index.md), then follow its
 task-specific path. The numbered `knowledge/` documents are the internal agent
 orientation layer. Do not read all of them by default. For package extraction,
 read knowledge documents `10`, `90`, and the task-relevant subsystem pages.
-[`docs/README.md`](docs/README.md) reserves the future public-documentation
-boundary; it is not an implementation authority.
+[`docs/index.md`](docs/index.md) is the public-documentation site entry point.
+It must be grounded in active code, tests, and executable examples; it is not
+an implementation authority.
 
 ## C. Non-negotiable inherited contracts
 

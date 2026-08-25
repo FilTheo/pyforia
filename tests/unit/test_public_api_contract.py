@@ -1,0 +1,72 @@
+"""Locked public import surface for the Pyforia 0.1 release line."""
+
+import pyforia
+import pyforia.core as core
+import pyforia.evaluation as evaluation
+import pyforia.policies as policies
+import pyforia.utils as utils
+import pyforia.visualization as visualization
+
+
+def test_public_export_sets_are_frozen_for_0_1():
+    assert pyforia.__all__ == [
+        "BasePolicy", "CallbackContext", "CallbackError",
+        "ColumnPeriodicReviewTargets", "ComparisonResult", "ConstraintContext",
+        "ConstraintResult", "ContinuousReviewPolicy", "FixedPeriodicReviewTargets",
+        "InventoryAdjustmentResult", "InventoryStateDataFrame",
+        "MaximumOrderQuantity", "MinimumOrderQuantity", "OrderAdjustmentResult",
+        "OrderDecision", "OrderMultiple", "OrderUpToPolicy", "OrderingConstraint",
+        "OrderingConstraints", "PeriodicReviewPolicy", "PeriodicReviewTargetProvider",
+        "PeriodicReviewTargets", "ScheduledInventoryAdjustment", "ScheduledOrderHold",
+        "ScheduledOrderMultiplier", "ScheduledOrderOverride", "ShelfSpaceLimit",
+        "SimulationCallback", "SimulationEngine", "SimulationResult",
+    ]
+    assert core.__all__ == [
+        "BasePolicy", "CALLBACK_AUDIT_COLUMNS", "CallbackContext", "CallbackError",
+        "ComparisonResult", "ConstraintContext", "ConstraintResult", "FIFOLotLedger",
+        "InventoryAdjustmentResult", "InventoryStateDataFrame", "MaximumOrderQuantity",
+        "MinimumOrderQuantity", "OrderAdjustmentResult", "OrderDecision", "OrderMultiple",
+        "OrderingConstraint", "OrderingConstraints", "ScheduledInventoryAdjustment",
+        "ScheduledOrderHold", "ScheduledOrderMultiplier", "ScheduledOrderOverride",
+        "RUN_MANIFEST_REQUIRED_SECTIONS", "ShelfLifeEngine", "ShelfSpaceLimit",
+        "SimulationCallback", "SimulationEngine", "SimulationResult",
+    ]
+    assert policies.__all__ == [
+        "OrderUpToPolicy", "ContinuousReviewPolicy", "PeriodicReviewPolicy",
+        "PeriodicReviewTargetProvider", "PeriodicReviewTargets",
+        "ColumnPeriodicReviewTargets", "FixedPeriodicReviewTargets",
+    ]
+    assert evaluation.__all__ == [
+        "InventoryEvaluator", "CANONICAL_EVENT_COLUMNS", "validate_event_frame",
+        "BaseInventoryMetric", "CoverageMetric", "avg_inventory_position",
+        "avg_on_hand", "avg_on_order", "backlog_cost", "backlog_unit_periods",
+        "backorder_period_rate", "capacity_violation_count", "capacity_violation_rate",
+        "cost_per_demand_unit", "cost_per_fulfilled_unit", "cycle_service_level",
+        "demand_period_service_level", "demand_units", "ending_on_hand_variance",
+        "fill_rate", "fulfilled_units", "holding_cost", "inventory_turns",
+        "lost_sales_units", "order_event_count", "order_units", "ordering_cost",
+        "peak_ending_on_hand", "purchase_cost", "salvage_credit",
+        "sku_order_line_count", "sku_order_quantity_variance",
+        "sku_period_stockout_rate", "shortage_cost", "shortage_units",
+        "stockout_period_rate", "terminal_backlog_cost", "terminal_backlog_units",
+        "terminal_pipeline_cost", "terminal_pipeline_units", "total_cost", "waste_cost",
+    ]
+    assert utils.__all__ == ["update_inventory_with_orders", "process_demand", "DemandGenerator"]
+    assert visualization.__all__ == [
+        "plot_inventory", "plot_demand_vs_orders", "plot_comparison",
+        "plot_summary_comparison", "plot_simulation_dashboard",
+        "plot_comparison_dashboard",
+    ]
+
+
+def test_public_output_schema_constants_are_available_from_public_namespaces():
+    assert core.CALLBACK_AUDIT_COLUMNS == (
+        "callback_position", "callback_module", "callback_class", "phase", "period",
+        "date", "run_window", "initial_decision", "unique_id", "before_value",
+        "after_value", "quantity_delta", "order_quantity", "reason", "source",
+        "received_date", "lot_evidence",
+    )
+    assert core.RUN_MANIFEST_REQUIRED_SECTIONS == (
+        "run_id", "created_at_utc", "demand_source", "package", "policy",
+        "opening_inventory", "run_settings", "dependencies",
+    )

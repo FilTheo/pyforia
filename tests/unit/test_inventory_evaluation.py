@@ -4,9 +4,10 @@ import pytest
 import pyforia.evaluation as evaluation
 from pyforia.core.base_policy import BasePolicy
 from pyforia.core.data_structures import InventoryStateDataFrame, OrderDecision
-from pyforia.core.simulation_engine import SimulationEngine
+from pyforia.core.simulation_engine import RUN_MANIFEST_REQUIRED_SECTIONS, SimulationEngine
 from pyforia.evaluation import (
     BaseInventoryMetric,
+    CANONICAL_EVENT_COLUMNS,
     CoverageMetric,
     InventoryEvaluator,
     avg_on_hand,
@@ -113,6 +114,9 @@ def test_simulation_result_exposes_normalized_event_frame():
     )
 
     event_frame = result.to_event_frame()
+
+    assert set(CANONICAL_EVENT_COLUMNS).issubset(event_frame.columns)
+    assert set(RUN_MANIFEST_REQUIRED_SECTIONS).issubset(result.run_manifest)
 
     assert list(event_frame["period"]) == [1.0, 2.0]
     assert list(event_frame["demand_period"]) == [0, 1]

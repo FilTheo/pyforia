@@ -91,7 +91,7 @@ class OrderUpToPolicy(BasePolicy):
         self,
         forecast_df: pd.DataFrame,
         *,
-        forecast_origin,
+        forecast_origin: pd.Timestamp,
         forecast_frequency: str,
         target_column: Optional[str] = None,
         target_end_date_column: Optional[str] = None,
@@ -103,7 +103,7 @@ class OrderUpToPolicy(BasePolicy):
         mean_column: Optional[str] = None,
         std_column: Optional[str] = None,
         forecast_date_column: Optional[str] = None,
-    ):
+    ) -> "OrderUpToPolicy":
         """
         Calculate target inventory levels from explicit scientific inputs.
 

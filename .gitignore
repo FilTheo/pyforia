@@ -5,3 +5,9 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+build/
+dist/
+knowledge/*
+!knowledge/93_public_api_contract.md
+.venv/
+site/

@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyforia"
+version = "0.1.0"
+description = "DataFrame-first inventory simulation and replenishment library."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = ["inventory", "replenishment", "simulation", "forecasting", "pandas"]
+authors = [
+    { name = "Filotas Theodosiou" },
+]
+maintainers = [
+    { name = "Filotas Theodosiou" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "numpy>=1.23",
+    "pandas>=1.5",
+    "matplotlib>=3.6",
+]
+
+[project.urls]
+Source = "https://github.com/FilTheo/pyforia"
+Issues = "https://github.com/FilTheo/pyforia/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["pyforia*"]

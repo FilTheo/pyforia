@@ -18,7 +18,7 @@ from pyforia.core.data_structures import (
 def update_inventory_with_orders(
     inventory_state: InventoryStateDataFrame,
     orders: OrderDecision,
-    policy = None
+    policy: object | None = None,
 ) -> InventoryStateDataFrame:
     """
     Update inventory state by placing orders.

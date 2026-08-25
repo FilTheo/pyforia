@@ -82,6 +82,20 @@ CALLBACK_AUDIT_COLUMNS = (
     "lot_evidence",
 )
 
+# Stable top-level sections of ``SimulationResult.run_manifest`` for 0.1.x.
+# Their nested contents are documented as additive: a patch release may add
+# descriptive fields but must not remove or reinterpret these sections.
+RUN_MANIFEST_REQUIRED_SECTIONS = (
+    "run_id",
+    "created_at_utc",
+    "demand_source",
+    "package",
+    "policy",
+    "opening_inventory",
+    "run_settings",
+    "dependencies",
+)
+
 
 # ============================================================================
 # SIMULATION RESULT

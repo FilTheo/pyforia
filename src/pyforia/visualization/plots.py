@@ -4,11 +4,12 @@ Plotting functions for inventory simulation results.
 All functions return matplotlib Axes (or arrays of Axes) and do NOT call plt.show().
 """
 
-from typing import Optional, List, Tuple, Union
+from typing import Any, Hashable, List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
 
 
 def _prepare_event_frame(result, sku=None) -> pd.DataFrame:
@@ -53,7 +54,12 @@ def _get_ax(ax, figsize: Tuple[float, float]):
     return ax
 
 
-def plot_inventory(result, sku=None, ax=None, figsize=(12, 5)):
+def plot_inventory(
+    result: Any,
+    sku: Optional[Union[Hashable, List[Hashable]]] = None,
+    ax: Optional[Axes] = None,
+    figsize: Tuple[float, float] = (12, 5),
+) -> Axes:
     """
     Plot on_hand inventory over time with stockout highlighting.
 
@@ -85,7 +91,12 @@ def plot_inventory(result, sku=None, ax=None, figsize=(12, 5)):
     return ax
 
 
-def plot_demand_vs_orders(result, sku=None, ax=None, figsize=(12, 5)):
+def plot_demand_vs_orders(
+    result: Any,
+    sku: Optional[Union[Hashable, List[Hashable]]] = None,
+    ax: Optional[Axes] = None,
+    figsize: Tuple[float, float] = (12, 5),
+) -> Axes:
     """
     Plot demand and orders over time.
 
@@ -112,7 +123,13 @@ def plot_demand_vs_orders(result, sku=None, ax=None, figsize=(12, 5)):
     return ax
 
 
-def plot_comparison(comparison_result, metric='on_hand', sku=None, ax=None, figsize=(12, 6)):
+def plot_comparison(
+    comparison_result: Any,
+    metric: str = 'on_hand',
+    sku: Optional[Union[Hashable, List[Hashable]]] = None,
+    ax: Optional[Axes] = None,
+    figsize: Tuple[float, float] = (12, 6),
+) -> Axes:
     """
     Overlay a metric across multiple policies from a ComparisonResult.
 
@@ -146,7 +163,11 @@ def plot_comparison(comparison_result, metric='on_hand', sku=None, ax=None, figs
     return ax
 
 
-def plot_summary_comparison(comparison_result, metrics=None, figsize=(10, 6)):
+def plot_summary_comparison(
+    comparison_result: Any,
+    metrics: Optional[List[str]] = None,
+    figsize: Tuple[float, float] = (10, 6),
+) -> Axes:
     """
     Grouped bar chart comparing summary metrics across policies.
 
@@ -182,9 +203,9 @@ def plot_summary_comparison(comparison_result, metrics=None, figsize=(10, 6)):
 
 
 def plot_simulation_dashboard(
-    result,
-    sku=None,
-    figsize=(13, 10),
+    result: Any,
+    sku: Optional[Union[Hashable, List[Hashable]]] = None,
+    figsize: Tuple[float, float] = (13, 10),
     show_target: bool = True,
     show_safety_stock: bool = True,
 ) -> np.ndarray:
@@ -300,9 +321,9 @@ def plot_simulation_dashboard(
 
 
 def plot_comparison_dashboard(
-    comparison_result,
-    sku=None,
-    figsize=(13, 8),
+    comparison_result: Any,
+    sku: Optional[Union[Hashable, List[Hashable]]] = None,
+    figsize: Tuple[float, float] = (13, 8),
 ) -> np.ndarray:
     """
     Side-by-side multi-metric comparison across policies.

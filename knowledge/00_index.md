@@ -22,11 +22,17 @@ the task:
 | Add an operational constraint | [50](50_constraints_and_shelf_life.md) | [30](30_execution_flow.md), [60](60_events_evaluation_and_outputs.md) |
 | Add a metric | [60](60_events_evaluation_and_outputs.md) | [80](80_tests_and_evidence.md) |
 | Prepare the new package | [90](90_pyforia_extraction_guide.md) | [10](10_system_context.md), [80](80_tests_and_evidence.md) |
+| Check the frozen 0.1 public API | [93](93_public_api_contract.md) | [20](20_data_and_time_contracts.md), [30](30_execution_flow.md), [40](40_policies_and_targets.md), [50](50_constraints_and_shelf_life.md), [60](60_events_evaluation_and_outputs.md) |
+| Review or align the public example notebooks | [92](92_public_example_notebook_specification.md) | [10](10_system_context.md), [20](20_data_and_time_contracts.md), [30](30_execution_flow.md), [40](40_policies_and_targets.md), [50](50_constraints_and_shelf_life.md), [60](60_events_evaluation_and_outputs.md), [91](91_smooth_python_forecasting_research.md) |
 
 [70 — Module reference](70_module_reference.md) is a lookup table, not required
 reading. [80 — Tests and evidence](80_tests_and_evidence.md) is for validation
 scope and known defects. Read multiple subsystem pages only when a change
 crosses their boundaries.
+
+[92 — Public example notebook specification](92_public_example_notebook_specification.md)
+is the agent-facing specification aligned to the current `examples/` notebook
+series. The notebooks remain the authority for their demonstrated workflows.
 
 ## 0.2 Authority and vocabulary
 
@@ -55,6 +61,6 @@ inputs with zero, or treat absent provenance as acceptable.
 
 - [Repository README](../README.md): concise human-facing status.
 - [Agent instructions](../AGENTS.md): working rules.
-- [Future public docs](../docs/README.md): intentionally empty until the package
-  exists.
+- [Public docs](../docs/index.md): user-facing material generated from the
+  frozen public contract, active code, tests, and examples.
 - [Archive guide](../arxiv/README.md): historical documentation and reports.

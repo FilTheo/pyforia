@@ -29,10 +29,17 @@ from .order_constraints import (
     ShelfSpaceLimit,
 )
 from .shelf_life import FIFOLotLedger, ShelfLifeEngine
-from .simulation_engine import ComparisonResult, SimulationEngine, SimulationResult
+from .simulation_engine import (
+    CALLBACK_AUDIT_COLUMNS,
+    RUN_MANIFEST_REQUIRED_SECTIONS,
+    ComparisonResult,
+    SimulationEngine,
+    SimulationResult,
+)
 
 __all__ = [
     "BasePolicy",
+    "CALLBACK_AUDIT_COLUMNS",
     "CallbackContext",
     "CallbackError",
     "ComparisonResult",
@@ -52,6 +59,7 @@ __all__ = [
     "ScheduledOrderHold",
     "ScheduledOrderMultiplier",
     "ScheduledOrderOverride",
+    "RUN_MANIFEST_REQUIRED_SECTIONS",
     "ShelfLifeEngine",
     "ShelfSpaceLimit",
     "SimulationCallback",

@@ -1,0 +1,9 @@
+include README.md
+include LICENSE
+graft src
+prune arxiv
+prune data
+prune docs
+prune examples
+global-exclude __pycache__
+global-exclude *.py[cod]

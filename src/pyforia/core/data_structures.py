@@ -776,12 +776,12 @@ class OrderDecision:
         - order_period: Period when order was placed
         - expected_delivery_period: Period when order is expected to arrive
 
+    ``order_quantity`` is mandatory. Optional diagnostic columns are added with
+    NaN when they are not applicable.
+
     Attributes:
         - lead_time: Lead time from the policy (L)
         - review_period: Review period from the policy (R)
-
-        ``order_quantity`` is mandatory. Optional diagnostic columns are added
-        with NaN when they are not applicable.
 
     Example:
         # Typically created from policy output
