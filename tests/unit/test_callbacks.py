@@ -1,6 +1,4 @@
 import json
-import runpy
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -498,20 +496,6 @@ def test_event_ledger_fixture_for_callback_and_constraint_ordering():
         "order_quantity": 15.0,
         "inventory_adjustment_units": 0.0,
     }]
-
-
-def test_documented_callback_examples_execute():
-    example = runpy.run_path(
-        Path(__file__).resolve().parents[2] / "tutorials" / "callback_examples.py"
-    )
-    built_in, custom = example["run_examples"]()
-    assert built_in.to_callback_audit_frame()["phase"].tolist() == [
-        "on_after_prediction"
-    ]
-    assert custom.to_callback_audit_frame()["phase"].tolist() == [
-        "on_after_demand",
-        "on_after_demand",
-    ]
 
 
 @pytest.mark.parametrize("callbacks", [SimulationCallback(), [object()]])

@@ -22,5 +22,8 @@ knowledge/*
 !examples/notebooks/data/
 !examples/notebooks/data/m5/
 !examples/notebooks/data/m5/**
+
+# Retained only in local development history; public walkthroughs live in examples/.
+/tutorials/
 .venv/
 site/
