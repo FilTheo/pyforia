@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FilTheo/pyforia/main/pyforia_logo.png" width="180" alt="Pyforia logo">
+  <img src="./pyforia_logo.png" width="180" alt="Pyforia logo">
 </p>
 
 # Pyforia
